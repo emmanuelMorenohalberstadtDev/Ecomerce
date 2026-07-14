@@ -1,0 +1,11 @@
+# Dev profile: values only, mechanisms identical to prod (deployment-architecture.md).
+# Secrets come from the environment (.env via compose or shell) - no defaults, fail fast.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+
+logging:
+  level:
+    org.hibernate.SQL: debug
