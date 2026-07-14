@@ -1,0 +1,5 @@
+# Test profile: no datasource properties - Testcontainers supplies the connection
+# via @ServiceConnection (testing-strategy.md). Mechanisms identical to prod otherwise.
+logging:
+  level:
+    org.hibernate.SQL: warn
