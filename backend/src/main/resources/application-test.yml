@@ -1,0 +1,5 @@
+spring:
+  flyway:
+    # Testcontainers integration tests initialize their own schema.
+    # Each test class that needs Flyway runs it explicitly via a shared container.
+    enabled: false
