@@ -1,0 +1,22 @@
+# Dev override — auto-merged when named compose.override.yaml.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What changes in dev vs prod-like:
+#   - DB port exposed to host for local psql / DBeaver access
+#   - API port exposed to host for direct curl / Postman access
+#   - Source bind mount on api for IDE-triggered rebuilds
+#   - Spring dev profile active (verbose logging, relaxed SQL)
+
+services:
+
+  db:
+    ports:
+      - "5432:5432"   # expose to host — dev convenience only, never in base file
+
+  api:
+    ports:
+      - "8080:8080"   # expose to host for direct debugging
+    volumes:
+      - ./backend:/workspace   # bind mount — enables hot-reload tooling
+    environment:
+      SPRING_PROFILES_ACTIVE: dev

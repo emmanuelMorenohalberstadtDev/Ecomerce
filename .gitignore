@@ -1,4 +1,4 @@
-# Environment & secrets
+# Environment & secrets — .env.example is committed; .env is NOT
 .env
 *.env.local
 
@@ -8,7 +8,23 @@
 # Graphify cache (regenerable)
 graphify-out/
 
-# Future build outputs
+# Build outputs
 backend/target/
 frontend/node_modules/
 frontend/dist/
+frontend/.angular/
+
+# Java compiled classes
+*.class
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Maven wrapper jar (properties file is committed; jar is downloaded on first run)
+backend/.mvn/wrapper/maven-wrapper.jar
