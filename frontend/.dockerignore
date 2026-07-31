@@ -1,0 +1,20 @@
+# Exclude build outputs, secrets, and OS artifacts from the Docker build context.
+
+node_modules/
+dist/
+.angular/
+
+# Environment files — secrets never enter images
+.env
+*.env.local
+
+# Git history
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
