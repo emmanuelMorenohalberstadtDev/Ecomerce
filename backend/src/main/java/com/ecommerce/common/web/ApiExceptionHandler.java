@@ -6,14 +6,20 @@ import com.ecommerce.common.web.exception.ConflictException;
 import com.ecommerce.common.web.exception.NotFoundException;
 import com.ecommerce.common.web.exception.TokenException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -159,6 +165,86 @@ public class ApiExceptionHandler {
         ex.getBindingResult().getFieldErrors().forEach(fe ->
                 fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
         pd.setProperty("fieldErrors", fieldErrors);
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    }
+
+    /**
+     * Constraint violations on method-level parameters — {@code @RequestParam}/{@code @PathVariable}
+     * annotated with Bean Validation constraints (e.g. {@code @Min}, {@code @Pattern}) under a
+     * class-level {@code @Validated}. This is a different exception from
+     * {@link MethodArgumentNotValidException}, which only covers {@code @Valid} on a
+     * {@code @RequestBody}/model object — without this handler, an invalid query param (e.g.
+     * {@code ?page=-1}) falls through to the catch-all and returns 500 instead of 400.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(
+            ConstraintViolationException ex, HttpServletRequest request) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setType(URI.create(PROBLEMS_BASE + "validation-error"));
+        pd.setTitle("Validation Error");
+        pd.setDetail("Request contains invalid parameters");
+        pd.setInstance(URI.create(request.getRequestURI()));
+
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        for (ConstraintViolation<?> violation : ex.getConstraintViolations()) {
+            String path = violation.getPropertyPath().toString();
+            // propertyPath is "methodName.paramName" for method-level constraints — keep only paramName
+            String field = path.contains(".") ? path.substring(path.lastIndexOf('.') + 1) : path;
+            fieldErrors.put(field, violation.getMessage());
+        }
+        pd.setProperty("fieldErrors", fieldErrors);
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    }
+
+    /**
+     * Constraint violations on {@code @RequestParam}/{@code @PathVariable} caught by Spring MVC's
+     * own method-parameter validation (Spring Framework 6.1+) — this is the exception actually
+     * thrown for controllers, e.g. a class-level {@code @Validated} combined with
+     * {@code @RequestParam @Pattern(...) String sort}. It is NOT a
+     * {@link ConstraintViolationException} (that AOP-based path applies to {@code @Validated}
+     * service/component methods, not controller request parameters) — without this handler the
+     * request falls through to the catch-all and returns 500 instead of 400.
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ProblemDetail> handleHandlerMethodValidation(
+            HandlerMethodValidationException ex, HttpServletRequest request) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setType(URI.create(PROBLEMS_BASE + "validation-error"));
+        pd.setTitle("Validation Error");
+        pd.setDetail("Request contains invalid parameters");
+        pd.setInstance(URI.create(request.getRequestURI()));
+
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+            String field = result.getMethodParameter().getParameterName();
+            String message = result.getResolvableErrors().stream()
+                    .map(MessageSourceResolvable::getDefaultMessage)
+                    .filter(msg -> msg != null)
+                    .findFirst()
+                    .orElse("invalid value");
+            fieldErrors.put(field != null ? field : "parameter", message);
+        }
+        pd.setProperty("fieldErrors", fieldErrors);
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    }
+
+    /**
+     * A path or query parameter could not be converted to its declared type — most commonly a
+     * malformed UUID in a {@code @PathVariable UUID id}. Without this handler, Spring's conversion
+     * failure falls through to the catch-all and returns 500 instead of 400.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setType(URI.create(PROBLEMS_BASE + "validation-error"));
+        pd.setTitle("Validation Error");
+        String expectedType = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "the expected type";
+        pd.setDetail("Parameter '" + ex.getName() + "' must be " + expectedType);
+        pd.setInstance(URI.create(request.getRequestURI()));
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
     }
