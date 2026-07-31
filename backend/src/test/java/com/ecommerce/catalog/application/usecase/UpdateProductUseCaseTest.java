@@ -1,0 +1,124 @@
+package com.ecommerce.catalog.application.usecase;
+
+import com.ecommerce.catalog.application.port.AuditLogPort;
+import com.ecommerce.catalog.application.usecase.UpdateProductUseCase.UpdateProductCommand;
+import com.ecommerce.catalog.domain.exception.CategoryNotFoundException;
+import com.ecommerce.catalog.domain.exception.ProductNotFoundException;
+import com.ecommerce.catalog.domain.model.Category;
+import com.ecommerce.catalog.domain.model.CategoryId;
+import com.ecommerce.catalog.domain.model.Product;
+import com.ecommerce.catalog.domain.model.Sku;
+import com.ecommerce.catalog.domain.port.out.CategoryRepository;
+import com.ecommerce.catalog.domain.port.out.ProductRepository;
+import com.ecommerce.shared.money.Money;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link UpdateProductUseCase}.
+ *
+ * <p>Mocks: {@link ProductRepository}, {@link CategoryRepository}, {@link AuditLogPort}.
+ * No Spring context.
+ */
+@Tag("unit")
+@ExtendWith(MockitoExtension.class)
+class UpdateProductUseCaseTest {
+
+    @Mock
+    private ProductRepository productRepository;
+
+    @Mock
+    private CategoryRepository categoryRepository;
+
+    @Mock
+    private AuditLogPort auditLogPort;
+
+    private UpdateProductUseCase useCase;
+
+    private final CategoryId categoryId = CategoryId.generate();
+    private final Category category = Category.reconstitute(categoryId, null, "Electronics");
+    private Product existingProduct;
+
+    @BeforeEach
+    void setUp() {
+        useCase = new UpdateProductUseCase(productRepository, categoryRepository, auditLogPort);
+        existingProduct = Product.create(categoryId, new Sku("abc-123"),
+                new Money(new BigDecimal("19.99"), "USD"), "Widget", "desc", List.of());
+    }
+
+    @Test
+    void shouldUpdateNameDescriptionAndCategory_whenProductAndCategoryExist() {
+        when(productRepository.findById(existingProduct.getId())).thenReturn(Optional.of(existingProduct));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product result = useCase.execute(new UpdateProductCommand(
+                existingProduct.getId().toString(), categoryId.toString(), "New Name", "New desc", null));
+
+        assertThat(result.getName()).isEqualTo("New Name");
+        assertThat(result.getDescription()).isEqualTo("New desc");
+    }
+
+    @Test
+    void shouldNotChangeSkuOrPrice() {
+        when(productRepository.findById(existingProduct.getId())).thenReturn(Optional.of(existingProduct));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product result = useCase.execute(new UpdateProductCommand(
+                existingProduct.getId().toString(), categoryId.toString(), "New Name", "New desc", null));
+
+        assertThat(result.getSku()).isEqualTo(new Sku("abc-123"));
+        assertThat(result.getBasePrice()).isEqualTo(new Money(new BigDecimal("19.99"), "USD"));
+    }
+
+    @Test
+    void shouldWriteAuditLog_onSuccess() {
+        when(productRepository.findById(existingProduct.getId())).thenReturn(Optional.of(existingProduct));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        useCase.execute(new UpdateProductCommand(
+                existingProduct.getId().toString(), categoryId.toString(), "New Name", "New desc", null));
+
+        verify(auditLogPort).record(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldThrowProductNotFoundException_whenProductDoesNotExist() {
+        when(productRepository.findById(existingProduct.getId())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new UpdateProductCommand(
+                existingProduct.getId().toString(), categoryId.toString(), "New Name", "desc", null)))
+                .isInstanceOf(ProductNotFoundException.class);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowCategoryNotFoundException_whenNewCategoryDoesNotExist() {
+        when(productRepository.findById(existingProduct.getId())).thenReturn(Optional.of(existingProduct));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new UpdateProductCommand(
+                existingProduct.getId().toString(), categoryId.toString(), "New Name", "desc", null)))
+                .isInstanceOf(CategoryNotFoundException.class);
+
+        verify(productRepository, never()).save(any());
+    }
+}

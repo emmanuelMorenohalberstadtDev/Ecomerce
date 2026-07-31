@@ -1,0 +1,432 @@
+openapi: 3.0.3
+info:
+  title: Ecommerce API — catalog context
+  version: "1.0"
+  description: >
+    Hand-authored OpenAPI contract for the catalog bounded context
+    (products, categories). No OpenAPI generation tooling (e.g. springdoc-openapi) exists
+    anywhere in this repository yet — this file is maintained by hand until that changes.
+    See the catalog implementation handoff report for the recommendation to add
+    springdoc-openapi-starter-webmvc-ui as a follow-up architecture decision (new dependency,
+    requires software-architect approval).
+servers:
+  - url: /api/v1
+
+tags:
+  - name: products
+  - name: categories
+  - name: admin-products
+  - name: admin-categories
+
+paths:
+  /products:
+    get:
+      tags: [products]
+      summary: List/search ACTIVE products
+      description: Public. ACTIVE products only, for every caller (GUEST/CUSTOMER/ADMIN alike).
+      parameters:
+        - name: categoryId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: name
+          in: query
+          description: Case-insensitive name-prefix filter
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, basePrice], default: name }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: asc }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+
+  /products/{id}:
+    get:
+      tags: [products]
+      summary: Get one product by id
+      description: >
+        Public. ACTIVE products only — a RETIRED product is 404 for every caller here,
+        admins included.
+      parameters:
+        - $ref: "#/components/parameters/ProductIdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /categories:
+    get:
+      tags: [categories]
+      summary: List categories
+      description: Public. No status concept — every category is returned.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CategoryPage" }
+
+  /categories/{id}:
+    get:
+      tags: [categories]
+      summary: Get one category by id
+      parameters:
+        - $ref: "#/components/parameters/CategoryIdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/products:
+    post:
+      tags: [admin-products]
+      summary: Create a product
+      security: [{ bearerAuth: [] }]
+      description: ADMIN only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProductRequest" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              schema: { type: string }
+              description: "/api/v1/products/{id} — the public read endpoint"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: SKU already in use
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  /admin/products/{id}:
+    put:
+      tags: [admin-products]
+      summary: Update a product's category, name, description, and images
+      security: [{ bearerAuth: [] }]
+      description: ADMIN only. SKU, price, and status are not editable here.
+      parameters:
+        - $ref: "#/components/parameters/ProductIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProductRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/products/{id}/price:
+    put:
+      tags: [admin-products]
+      summary: Replace a product's current base price
+      security: [{ bearerAuth: [] }]
+      description: ADMIN only. Raises ProductPriceChangedEvent; audit-logged.
+      parameters:
+        - $ref: "#/components/parameters/ProductIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangeProductPriceRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/products/{id}/retirement:
+    post:
+      tags: [admin-products]
+      summary: Retire a product (ACTIVE -> RETIRED)
+      security: [{ bearerAuth: [] }]
+      description: >
+        ADMIN only. Never deletes. Rejects an already-RETIRED product with 409
+        (product-already-retired) rather than treating it as a no-op. Raises
+        ProductRetiredEvent; audit-logged.
+      parameters:
+        - $ref: "#/components/parameters/ProductIdPath"
+      responses:
+        "200":
+          description: OK — updated (RETIRED) product representation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Product is already retired
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  /admin/categories:
+    post:
+      tags: [admin-categories]
+      summary: Create a category
+      security: [{ bearerAuth: [] }]
+      description: ADMIN only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCategoryRequest" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              schema: { type: string }
+              description: "/api/v1/categories/{id} — the public read endpoint"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/categories/{id}:
+    put:
+      tags: [admin-categories]
+      summary: Update a category's name and/or parent
+      security: [{ bearerAuth: [] }]
+      description: >
+        ADMIN only. Rejects re-parenting under the category's own descendant with 422
+        (category-cycle, BusinessRuleViolation).
+      parameters:
+        - $ref: "#/components/parameters/CategoryIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCategoryRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: Would create a cycle in the category tree
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+    delete:
+      tags: [admin-categories]
+      summary: Delete an empty category
+      security: [{ bearerAuth: [] }]
+      description: >
+        ADMIN only. Rejected with 409 (conflict) if the category still has child categories or
+        products.
+      parameters:
+        - $ref: "#/components/parameters/CategoryIdPath"
+      responses:
+        "204":
+          description: No Content
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Category still has children or products
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ProductIdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CategoryIdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Forbidden:
+      description: Authenticated but wrong role
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  schemas:
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: string, example: "19.99" }
+        currency: { type: string, example: "USD" }
+
+    ProductImage:
+      type: object
+      required: [imageUrl, displayOrder]
+      properties:
+        imageUrl: { type: string }
+        displayOrder: { type: integer, minimum: 0 }
+
+    Product:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        sku: { type: string }
+        status: { type: string, enum: [ACTIVE, RETIRED] }
+        basePrice: { $ref: "#/components/schemas/Money" }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/ProductImage" }
+
+    ProductPage:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        parentId: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+
+    CategoryPage:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/Category" }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    CreateProductRequest:
+      type: object
+      required: [categoryId, sku, basePrice, name]
+      properties:
+        categoryId: { type: string, format: uuid }
+        sku: { type: string, minLength: 1, maxLength: 64 }
+        basePrice: { $ref: "#/components/schemas/Money" }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, maxLength: 10000, nullable: true }
+        images:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProductImage" }
+
+    UpdateProductRequest:
+      type: object
+      required: [categoryId, name]
+      properties:
+        categoryId: { type: string, format: uuid }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, maxLength: 10000, nullable: true }
+        images:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ProductImage" }
+
+    ChangeProductPriceRequest:
+      type: object
+      required: [basePrice]
+      properties:
+        basePrice: { $ref: "#/components/schemas/Money" }
+
+    CreateCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 150 }
+        parentId: { type: string, format: uuid, nullable: true }
+
+    UpdateCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 150 }
+        parentId: { type: string, format: uuid, nullable: true }
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457 Problem Details (api-guidelines.md §3.1)
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
