@@ -1,0 +1,117 @@
+openapi: 3.0.3
+info:
+  title: Ecommerce API — inventory context
+  version: "1.0"
+  description: >
+    Hand-authored OpenAPI contract for the inventory bounded context. Same no-generation-tooling
+    caveat as catalog-openapi.yaml: no springdoc-openapi in this repository yet, maintained by
+    hand until that changes.
+
+    This context's stock reserve/commit/release/expire-sweep behavior is NOT exposed over REST —
+    those are in-process ports for the future checkout context to call directly (checkout has no
+    module yet). The only public surface in this change is the admin manual stock-adjustment
+    endpoint below. There is no public "check stock" read endpoint — api-guidelines.md does not
+    document one.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: admin-inventory
+
+paths:
+  /admin/stock-items/{productId}/adjustments:
+    post:
+      tags: [admin-inventory]
+      summary: Apply a manual admin stock correction
+      security: [{ bearerAuth: [] }]
+      description: >
+        ADMIN only. Increases or decreases quantity_available directly with a mandatory reason.
+        Writes one stock_movements ADMIN_ADJUSTMENT row and one admin_audit_log row in the same
+        transaction as the stock_items update. Requires an existing stock_items row for the
+        product (404 otherwise) — this endpoint does not create one; see the inventory handoff
+        report for the open question this raises.
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdjustStockRequest" }
+      responses:
+        "200":
+          description: OK — updated stock item representation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockItemResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No stock item exists yet for this product
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+        "409":
+          description: The adjustment would drive quantity_available below zero
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    ValidationError:
+      description: Malformed request body
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Forbidden:
+      description: Authenticated but wrong role
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  schemas:
+    AdjustStockRequest:
+      type: object
+      required: [delta, reason]
+      properties:
+        delta:
+          type: integer
+          minimum: -1000000
+          maximum: 1000000
+          description: Signed change; positive = increase, negative = decrease. Must not be zero.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    StockItemResponse:
+      type: object
+      properties:
+        productId: { type: string, format: uuid }
+        quantityAvailable: { type: integer }
+        version: { type: integer, format: int64 }
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457 Problem Details (api-guidelines.md §3.1)
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
