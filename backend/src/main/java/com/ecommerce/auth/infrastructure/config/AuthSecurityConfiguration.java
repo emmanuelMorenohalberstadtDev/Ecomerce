@@ -64,6 +64,17 @@ public class AuthSecurityConfiguration {
                         // Catalog reads: public (anonymous browsing)
                         .requestMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
+                        // Cart: public route gate — GUEST is a real identity here (security §2.7,
+                        // §3.4), resolved from the guest cart cookie, not a Bearer token. A truly
+                        // anonymous request must reach CartController; .anyRequest().authenticated()
+                        // below would otherwise reject it (AuthenticatedAuthorizationManager
+                        // excludes AnonymousAuthenticationToken — confirmed against Spring Security
+                        // 6.4.5 bytecode, this is not the "anonymous tokens are authenticated too"
+                        // folk belief). Ownership (own cart only) is enforced inside the use cases
+                        // via the resolved identity; ADMIN gets 403 via @PreAuthorize on every cart
+                        // use case (§3.2 fine layer) — this route rule intentionally only widens
+                        // who reaches the controller, not who the controller lets succeed.
+                        .requestMatchers("/api/v1/carts/**").permitAll()
                         // Actuator health: public (load balancer checks)
                         .requestMatchers("/actuator/health").permitAll()
                         // Admin surface: requires ADMIN role at the route level;
