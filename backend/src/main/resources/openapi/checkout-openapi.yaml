@@ -1,0 +1,240 @@
+openapi: 3.0.3
+info:
+  title: Ecommerce API — checkout context
+  version: "1.0"
+  description: >
+    Hand-authored OpenAPI contract for the checkout bounded context (ADR-0003). Same
+    no-generation-tooling caveat as catalog-openapi.yaml/inventory-openapi.yaml: no
+    springdoc-openapi in this repository yet, maintained by hand until that changes.
+
+    Checkout is customer-only — there is no guest path (security-architecture §3.4: the
+    "Checkout & payment ops" row is 401 for GUEST, 403 for ADMIN). Every endpoint below requires
+    a CUSTOMER-role bearer token.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: checkout
+
+paths:
+  /checkout-sessions:
+    post:
+      tags: [checkout]
+      summary: Start a checkout session for the caller's active cart
+      security: [{ bearerAuth: [] }]
+      description: >
+        Recalculates the authoritative total for the caller's active cart (server-side price
+        authority, security-architecture §1.4 threat 2). If the recalculated total matches
+        `expectedTotal`, stock is reserved and the session moves to AWAITING_PAYMENT (201, with a
+        Location header pointing at the session, and the 15-minute payment window running). If it
+        differs, the session is persisted as PENDING_CONFIRMATION with no reservation made yet and
+        the new total is returned for the caller to re-confirm via `POST
+        /checkout-sessions/{id}/confirmation` (200).
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Client-generated key, 1-255 chars, opaque to the server (api-guidelines §5). A key
+            that has already been used to start a session returns 409.
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartCheckoutRequest" }
+      responses:
+        "200":
+          description: Recalculated total differs from expectedTotal — session is PENDING_CONFIRMATION
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSessionResponse" }
+        "201":
+          description: Stock reserved — session is AWAITING_PAYMENT
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSessionResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: >
+            Idempotency-Key already used (duplicate-key replay), or stock could not be fully
+            reserved (a concurrent checkout won the last unit)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+        "422":
+          description: The caller has no active cart, or it has no lines
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  /checkout-sessions/{id}/confirmation:
+    post:
+      tags: [checkout]
+      summary: Confirm a re-shown recalculated total and proceed to reserve stock
+      security: [{ bearerAuth: [] }]
+      description: >
+        Ownership-scoped (404 if the session does not exist or belongs to another customer). The
+        session must currently be PENDING_CONFIRMATION (422 otherwise). Prices are re-verified
+        against catalog/pricing one more time; if they moved again, the session stays
+        PENDING_CONFIRMATION with the newest total (200) rather than looping. If they match, stock
+        is reserved and the session moves to AWAITING_PAYMENT (201).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfirmTotalRequest" }
+      responses:
+        "200":
+          description: Total moved again — session remains PENDING_CONFIRMATION with the newest total
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSessionResponse" }
+        "201":
+          description: Stock reserved — session is AWAITING_PAYMENT
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSessionResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such session, or it does not belong to the caller
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+        "409":
+          description: Stock could not be fully reserved (a concurrent checkout won the last unit)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+        "422":
+          description: The session is not PENDING_CONFIRMATION, or the caller's cart is no longer active
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  /checkout-sessions/{id}:
+    get:
+      tags: [checkout]
+      summary: View a checkout session
+      security: [{ bearerAuth: [] }]
+      description: Ownership-scoped (404 if the session does not exist or belongs to another customer).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutSessionResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such session, or it does not belong to the caller
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    ValidationError:
+      description: Malformed request body, missing/blank Idempotency-Key, or invalid path parameter
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Forbidden:
+      description: Authenticated but wrong role (e.g. ADMIN — admins don't shop)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  schemas:
+    MoneyDto:
+      type: object
+      description: api-guidelines.md §1.7 — amount is a decimal string, never a bare number.
+      required: [amount, currency]
+      properties:
+        amount: { type: string, example: "19.99" }
+        currency: { type: string, example: "USD" }
+
+    StartCheckoutRequest:
+      type: object
+      required: [expectedTotal]
+      properties:
+        expectedTotal:
+          allOf: [{ $ref: "#/components/schemas/MoneyDto" }]
+          description: >
+            The total the client/cart believed BEFORE server-side recalculation — carried only
+            for re-confirmation comparison, never as arithmetic input.
+
+    ConfirmTotalRequest:
+      type: object
+      required: [confirmedTotal]
+      properties:
+        confirmedTotal:
+          allOf: [{ $ref: "#/components/schemas/MoneyDto" }]
+          description: The total the customer was just shown and is now confirming.
+
+    CheckoutSessionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [PENDING_CONFIRMATION, AWAITING_PAYMENT, EXPIRED]
+        cartId: { type: string, format: uuid }
+        reservationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null while PENDING_CONFIRMATION.
+        subtotal: { $ref: "#/components/schemas/MoneyDto" }
+        discountTotal: { $ref: "#/components/schemas/MoneyDto" }
+        shippingFee: { $ref: "#/components/schemas/MoneyDto" }
+        grandTotal: { $ref: "#/components/schemas/MoneyDto" }
+        expectedTotal: { $ref: "#/components/schemas/MoneyDto" }
+        paymentDeadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO-8601 UTC. Null while PENDING_CONFIRMATION.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457 Problem Details (api-guidelines.md §3.1)
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }

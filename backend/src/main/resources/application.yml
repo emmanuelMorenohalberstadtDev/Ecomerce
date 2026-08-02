@@ -27,6 +27,11 @@ jwt:
   # Access token TTL in minutes. Security §6b specifies 10 minutes.
   access-token-expiry-minutes: 10
 
+checkout:
+  # The 15-minute payment window (domain-model.md §1/§5 "Payment window", rules 5/8).
+  # ISO-8601 duration; overridable per environment.
+  payment-window: PT15M
+
 management:
   endpoints:
     web:

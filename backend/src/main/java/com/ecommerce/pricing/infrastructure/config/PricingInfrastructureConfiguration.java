@@ -1,12 +1,14 @@
 package com.ecommerce.pricing.infrastructure.config;
 
 import com.ecommerce.catalog.application.port.ProductLookupPort;
+import com.ecommerce.pricing.application.port.PriceCalculationPort;
 import com.ecommerce.pricing.application.usecase.CalculateEffectivePriceUseCase;
 import com.ecommerce.pricing.domain.model.PriceCalculator;
 import com.ecommerce.pricing.domain.port.out.ProductCatalogPort;
 import com.ecommerce.pricing.domain.port.out.PromotionPolicyPort;
 import com.ecommerce.pricing.infrastructure.adapter.CatalogPriceAdapter;
 import com.ecommerce.pricing.infrastructure.adapter.NoDiscountPromotionPolicyAdapter;
+import com.ecommerce.pricing.infrastructure.adapter.PriceCalculationAdapter;
 import com.ecommerce.shared.money.Money;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -52,5 +54,14 @@ public class PricingInfrastructureConfiguration {
             @Value("${pricing.currency:USD}") String currency) {
         return new CalculateEffectivePriceUseCase(productCatalogPort, promotionPolicyPort, priceCalculator,
                 new Money(shippingFeeAmount, currency));
+    }
+
+    /**
+     * Cross-context outbound façade (ADR-0003 §Decision item 1) — the sanctioned crossing point
+     * for checkout's price recalculation.
+     */
+    @Bean
+    public PriceCalculationPort priceCalculationPort(CalculateEffectivePriceUseCase calculateEffectivePriceUseCase) {
+        return new PriceCalculationAdapter(calculateEffectivePriceUseCase);
     }
 }
