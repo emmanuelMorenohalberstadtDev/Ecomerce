@@ -1,6 +1,7 @@
 package com.ecommerce.inventory.infrastructure.adapter;
 
 import com.ecommerce.inventory.application.port.StockReservationPort;
+import com.ecommerce.inventory.application.usecase.CommitReservationUseCase;
 import com.ecommerce.inventory.application.usecase.ReleaseReservationUseCase;
 import com.ecommerce.inventory.application.usecase.ReservationLineInput;
 import com.ecommerce.inventory.application.usecase.ReserveStockUseCase;
@@ -13,23 +14,26 @@ import java.util.Objects;
 
 /**
  * Implements inventory's {@link StockReservationPort} by delegating to
- * {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase} — the only dependency this
- * adapter has on inventory's application internals. Mirrors
+ * {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase}/{@link CommitReservationUseCase} —
+ * the only dependency this adapter has on inventory's application internals. Mirrors
  * {@code cart.infrastructure.adapter.ProductCatalogAdapter}.
  *
  * <p>Translates inventory's own domain exceptions (private to inventory's domain package) into
- * this façade's nested exception types — a cross-context caller (checkout) must never catch or
- * import an inventory {@code domain.exception} type (ADR-0003 §Decision item 2).
+ * this façade's nested exception types — a cross-context caller (checkout, order) must never catch
+ * or import an inventory {@code domain.exception} type (ADR-0003 §Decision item 2).
  */
 public class StockReservationAdapter implements StockReservationPort {
 
     private final ReserveStockUseCase reserveStockUseCase;
     private final ReleaseReservationUseCase releaseReservationUseCase;
+    private final CommitReservationUseCase commitReservationUseCase;
 
     public StockReservationAdapter(ReserveStockUseCase reserveStockUseCase,
-                                   ReleaseReservationUseCase releaseReservationUseCase) {
+                                   ReleaseReservationUseCase releaseReservationUseCase,
+                                   CommitReservationUseCase commitReservationUseCase) {
         this.reserveStockUseCase = Objects.requireNonNull(reserveStockUseCase);
         this.releaseReservationUseCase = Objects.requireNonNull(releaseReservationUseCase);
+        this.commitReservationUseCase = Objects.requireNonNull(commitReservationUseCase);
     }
 
     @Override
@@ -62,6 +66,17 @@ public class StockReservationAdapter implements StockReservationPort {
     public void release(ReservationId reservationId) {
         try {
             releaseReservationUseCase.execute(reservationId);
+        } catch (com.ecommerce.inventory.domain.exception.InvalidReservationStateException e) {
+            // Fully qualified deliberately: see the shadowing note in reserve() above. Same
+            // hazard applies to InvalidReservationStateException.
+            throw new StockReservationPort.InvalidReservationStateException(e.getMessage());
+        }
+    }
+
+    @Override
+    public void commit(ReservationId reservationId) {
+        try {
+            commitReservationUseCase.execute(reservationId);
         } catch (com.ecommerce.inventory.domain.exception.InvalidReservationStateException e) {
             // Fully qualified deliberately: see the shadowing note in reserve() above. Same
             // hazard applies to InvalidReservationStateException.

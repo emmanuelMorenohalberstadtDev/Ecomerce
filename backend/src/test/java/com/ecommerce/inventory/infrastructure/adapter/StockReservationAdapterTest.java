@@ -4,6 +4,7 @@ import com.ecommerce.inventory.application.port.StockReservationPort;
 import com.ecommerce.inventory.application.port.StockReservationPort.ReservationLine;
 import com.ecommerce.inventory.application.port.StockReservationPort.ReservationOutcome;
 import com.ecommerce.inventory.application.port.StockReservationPort.ReservationRequest;
+import com.ecommerce.inventory.application.usecase.CommitReservationUseCase;
 import com.ecommerce.inventory.application.usecase.ReleaseReservationUseCase;
 import com.ecommerce.inventory.application.usecase.ReserveStockUseCase;
 import com.ecommerce.inventory.domain.model.Expiry;
@@ -33,41 +34,31 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit test for {@link StockReservationAdapter} — translates
- * {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase}'s domain exceptions (private to
- * inventory's own {@code domain.exception} package) into this façade's nested exception types.
- * Checkout is the first cross-context consumer of this façade, so its correctness is covered
- * directly here rather than only transitively through checkout's use-case tests.
+ * {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase}/{@link CommitReservationUseCase}'s
+ * domain exceptions (private to inventory's own {@code domain.exception} package) into this
+ * façade's nested exception types. Checkout and order are cross-context consumers of this façade,
+ * so its correctness is covered directly here rather than only transitively through their use-case
+ * tests.
  *
  * <p>Note on naming: inventory's own {@code domain.exception.InsufficientStockException}/
  * {@code InvalidReservationStateException} share simple names with this façade's nested exception
  * types of the same name — the two cannot both be imported unqualified in one file, so the
- * domain-layer ones (what {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase} actually
- * throw) are referenced fully-qualified below; the façade-level ones (what the adapter must
- * translate them into) are imported via {@link StockReservationPort}.
+ * domain-layer ones (what {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase}/
+ * {@link CommitReservationUseCase} actually throw) are referenced fully-qualified below; the
+ * façade-level ones (what the adapter must translate them into) are imported via
+ * {@link StockReservationPort}.
  *
- * <p><strong>KNOWN PRODUCTION BUG (reported, not fixed — test-engineer has no production-code
- * write access):</strong> {@link #reserve_throwsInsufficientStockException_whenReserveStockUseCaseReportsShortage()}
- * and {@link #release_throwsInvalidReservationStateException_whenReservationIsNotHeld()} currently
- * FAIL against {@code StockReservationAdapter.java} lines 47 and 61. Both {@code catch} clauses
- * there use the bare simple name ({@code InsufficientStockException}/
- * {@code InvalidReservationStateException}), imported at the top of that file from
- * {@code inventory.domain.exception}. But {@code StockReservationAdapter implements
- * StockReservationPort}, and {@code StockReservationPort} itself declares nested classes with the
- * exact same simple names — per JLS member-type inheritance, those inherited nested types shadow
- * the single-type-imports for unqualified resolution inside the class body. The two {@code catch}
- * clauses therefore actually catch {@code StockReservationPort.InsufficientStockException}/
- * {@code StockReservationPort.InvalidReservationStateException} (the façade-level types), never the
- * domain-level ones {@link ReserveStockUseCase}/{@link ReleaseReservationUseCase} actually throw —
- * confirmed empirically by these two tests: the domain-level exception propagates straight through
- * {@code StockReservationAdapter} untranslated. This defeats the adapter's one job (ADR-0003
- * §Decision item 2: "a cross-context caller must never catch or import an inventory
- * {@code domain.exception} type") — checkout's {@code ReservationAdapter} would receive an
- * inventory {@code domain.exception} instance it cannot recognise, instead of the intended
- * {@code InsufficientStockForCheckoutException}/{@code InvalidCheckoutSessionStateException}.
- * Left failing deliberately rather than weakened to hide the bug (skill {@code junit}: "a test
- * that never fails is a liability"); the fix is to fully-qualify both {@code catch} clauses (or add
- * an import alias via fully-qualifying the domain exceptions) in production code, which is out of
- * this change's scope.
+ * <p><strong>Correction to a prior revision of this javadoc:</strong> an earlier version of this
+ * comment reported a "known production bug" — that {@code StockReservationAdapter}'s {@code catch}
+ * clauses used unqualified simple names shadowed by {@link StockReservationPort}'s identically-named
+ * nested exception types (JLS member-type inheritance), defeating the adapter's translation job.
+ * Verified against the current {@code StockReservationAdapter.java}: all three {@code catch}
+ * clauses ({@code reserve}, {@code release}, {@code commit}) already fully-qualify the domain
+ * exception type being caught, which is immune to that shadowing hazard (qualification bypasses
+ * unqualified-name resolution entirely) — the bug described no longer reproduces, confirmed
+ * empirically by every test below passing. Left documented here, rather than silently deleted, so
+ * a future edit that reintroduces an unqualified {@code catch} regresses visibly against this
+ * suite instead of silently reopening the original hazard.
  */
 @Tag("unit")
 @ExtendWith(MockitoExtension.class)
@@ -79,6 +70,9 @@ class StockReservationAdapterTest {
     @Mock
     private ReleaseReservationUseCase releaseReservationUseCase;
 
+    @Mock
+    private CommitReservationUseCase commitReservationUseCase;
+
     private StockReservationAdapter adapter;
 
     private final CheckoutSessionId checkoutSessionId = CheckoutSessionId.generate();
@@ -87,7 +81,7 @@ class StockReservationAdapterTest {
 
     @BeforeEach
     void setUp() {
-        adapter = new StockReservationAdapter(reserveStockUseCase, releaseReservationUseCase);
+        adapter = new StockReservationAdapter(reserveStockUseCase, releaseReservationUseCase, commitReservationUseCase);
     }
 
     private StockReservation heldReservation() {
@@ -133,6 +127,27 @@ class StockReservationAdapterTest {
                 .when(releaseReservationUseCase).execute(reservationId);
 
         assertThatThrownBy(() -> adapter.release(reservationId))
+                .isInstanceOf(StockReservationPort.InvalidReservationStateException.class);
+    }
+
+    // ── commit() — previously injected but entirely untested; order's
+    //    AdminMarkOrderPaidUseCase is this method's first real cross-context caller ──
+
+    @Test
+    void commit_delegatesToCommitReservationUseCase() {
+        when(commitReservationUseCase.execute(reservationId)).thenReturn(heldReservation());
+
+        adapter.commit(reservationId);
+
+        verify(commitReservationUseCase).execute(reservationId);
+    }
+
+    @Test
+    void commit_throwsInvalidReservationStateException_whenReservationIsNotHeld() {
+        doThrow(new com.ecommerce.inventory.domain.exception.InvalidReservationStateException("not HELD"))
+                .when(commitReservationUseCase).execute(reservationId);
+
+        assertThatThrownBy(() -> adapter.commit(reservationId))
                 .isInstanceOf(StockReservationPort.InvalidReservationStateException.class);
     }
 }

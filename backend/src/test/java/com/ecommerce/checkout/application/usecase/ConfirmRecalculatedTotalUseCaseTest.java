@@ -6,6 +6,7 @@ import com.ecommerce.checkout.domain.exception.CartNotCheckoutableException;
 import com.ecommerce.checkout.domain.exception.CheckoutSessionNotFoundException;
 import com.ecommerce.checkout.domain.exception.InvalidCheckoutSessionStateException;
 import com.ecommerce.checkout.domain.model.CheckoutSession;
+import com.ecommerce.checkout.domain.model.RecalculatedLine;
 import com.ecommerce.checkout.domain.model.RecalculatedTotal;
 import com.ecommerce.checkout.domain.model.SessionStatus;
 import com.ecommerce.checkout.domain.port.out.CartLinesPort;
@@ -90,7 +91,10 @@ class ConfirmRecalculatedTotalUseCaseTest {
 
     private static RecalculatedTotal totalOf(String grandTotal) {
         Money money = new Money(new BigDecimal(grandTotal), "USD");
-        return new RecalculatedTotal(List.of(), money, Money.zero("USD"), Money.zero("USD"), money);
+        // Non-empty lines required: CheckoutAwaitingPaymentEvent.Line (ADR-0004) is built from
+        // this in-memory RecalculatedTotal and its compact constructor rejects an empty list.
+        RecalculatedLine line = new RecalculatedLine(ProductId.generate(), Quantity.of(1), money, money);
+        return new RecalculatedTotal(List.of(line), money, Money.zero("USD"), Money.zero("USD"), money);
     }
 
     private CheckoutSession pendingSession() {
@@ -130,14 +134,25 @@ class ConfirmRecalculatedTotalUseCaseTest {
         when(checkoutSessionRepository.findByIdAndCustomerId(sessionId, customerId))
                 .thenReturn(Optional.of(pendingSession()));
         when(cartLinesPort.findActiveCartLines(customerId)).thenReturn(Optional.of(cartWithOneLine()));
-        when(priceQuotePort.recalculate(any())).thenReturn(totalOf("50.00"));
+        RecalculatedTotal total = totalOf("50.00");
+        when(priceQuotePort.recalculate(any())).thenReturn(total);
         when(reservationPort.reserve(any(), any(), any()))
                 .thenReturn(new ReservationOutcome(ReservationId.generate()));
         when(checkoutSessionRepository.save(any(CheckoutSession.class))).thenAnswer(inv -> inv.getArgument(0));
 
         useCase.execute(command("50.00"));
 
-        verify(eventPublisher).publishEvent(any(CheckoutAwaitingPaymentEvent.class));
+        ArgumentCaptor<CheckoutAwaitingPaymentEvent> captor = ArgumentCaptor.forClass(CheckoutAwaitingPaymentEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        CheckoutAwaitingPaymentEvent event = captor.getValue();
+        // order's PlaceOrderFromCheckoutUseCase builds its LineSnapshots/OrderTotals directly from
+        // these fields (ADR-0004 item 1) — assert them explicitly, mirroring
+        // StartCheckoutUseCaseTest's equivalent assertion for the sibling reservation path.
+        assertThat(event.lines()).hasSize(1);
+        assertThat(event.lines().get(0).productId()).isEqualTo(total.lines().get(0).productId());
+        assertThat(event.discountTotal()).isEqualTo(total.discountTotal());
+        assertThat(event.shippingTotal()).isEqualTo(total.shippingFee());
+        assertThat(event.grandTotal()).isEqualTo(total.grandTotal());
     }
 
     // ── price moved again: stays PENDING_CONFIRMATION, does not loop ───────

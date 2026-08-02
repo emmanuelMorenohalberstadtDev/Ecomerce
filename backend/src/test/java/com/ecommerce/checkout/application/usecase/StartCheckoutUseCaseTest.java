@@ -7,6 +7,7 @@ import com.ecommerce.checkout.domain.exception.CheckoutSessionAlreadyOpenExcepti
 import com.ecommerce.checkout.domain.exception.DuplicateIdempotencyKeyException;
 import com.ecommerce.checkout.domain.exception.InsufficientStockForCheckoutException;
 import com.ecommerce.checkout.domain.model.CheckoutSession;
+import com.ecommerce.checkout.domain.model.RecalculatedLine;
 import com.ecommerce.checkout.domain.model.RecalculatedTotal;
 import com.ecommerce.checkout.domain.model.SessionStatus;
 import com.ecommerce.checkout.domain.port.out.CartLinesPort;
@@ -110,7 +111,10 @@ class StartCheckoutUseCaseTest {
 
     private static RecalculatedTotal totalOf(String grandTotal) {
         Money money = new Money(new BigDecimal(grandTotal), "USD");
-        return new RecalculatedTotal(List.of(), money, Money.zero("USD"), Money.zero("USD"), money);
+        // Non-empty lines required: CheckoutAwaitingPaymentEvent.Line (ADR-0004) is built from
+        // this in-memory RecalculatedTotal and its compact constructor rejects an empty list.
+        RecalculatedLine line = new RecalculatedLine(ProductId.generate(), Quantity.of(1), money, money);
+        return new RecalculatedTotal(List.of(line), money, Money.zero("USD"), Money.zero("USD"), money);
     }
 
     private StartCheckoutCommand command(String expectedTotal) {
@@ -155,7 +159,8 @@ class StartCheckoutUseCaseTest {
     void shouldPublishCheckoutAwaitingPaymentEvent_whenTotalsMatch() {
         noOpenSessionAndNoReusedKey();
         when(cartLinesPort.findActiveCartLines(customerId)).thenReturn(Optional.of(cartWithOneLine()));
-        when(priceQuotePort.recalculate(any())).thenReturn(totalOf("50.00"));
+        RecalculatedTotal total = totalOf("50.00");
+        when(priceQuotePort.recalculate(any())).thenReturn(total);
         when(checkoutSessionRepository.create(any(CheckoutSession.class))).thenAnswer(inv -> inv.getArgument(0));
         ReservationId reservationId = ReservationId.generate();
         when(reservationPort.reserve(any(), any(), any())).thenReturn(new ReservationOutcome(reservationId));
@@ -170,6 +175,18 @@ class StartCheckoutUseCaseTest {
         assertThat(event.customerId()).isEqualTo(customerId);
         assertThat(event.cartId()).isEqualTo(cartId);
         assertThat(event.reservationId()).isEqualTo(reservationId);
+        // order's PlaceOrderFromCheckoutUseCase builds its LineSnapshots/OrderTotals directly from
+        // these fields (ADR-0004 item 1) — assert them explicitly, not just the identifying ids
+        // above, so a future change that drops/mis-maps one of them fails here rather than only
+        // surfacing downstream in order's tests.
+        assertThat(event.lines()).hasSize(1);
+        assertThat(event.lines().get(0).productId()).isEqualTo(total.lines().get(0).productId());
+        assertThat(event.lines().get(0).quantity()).isEqualTo(total.lines().get(0).quantity());
+        assertThat(event.lines().get(0).unitPrice()).isEqualTo(total.lines().get(0).unitPrice());
+        assertThat(event.lines().get(0).lineTotal()).isEqualTo(total.lines().get(0).lineTotal());
+        assertThat(event.discountTotal()).isEqualTo(total.discountTotal());
+        assertThat(event.shippingTotal()).isEqualTo(total.shippingFee());
+        assertThat(event.grandTotal()).isEqualTo(total.grandTotal());
     }
 
     // ── price mismatch: result, not exception ─────────────────────────────

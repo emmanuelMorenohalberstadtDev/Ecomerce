@@ -39,6 +39,18 @@ public interface StockReservationPort {
      */
     void release(ReservationId reservationId);
 
+    /**
+     * Commits a {@code HELD} reservation to {@code COMMITTED} on payment success (ADR-0004
+     * §Decision item 2) — the reservation's stock stays decremented for good; no
+     * {@code quantity_available} change happens here (it already happened at reserve time).
+     * Delegates to {@code CommitReservationUseCase}, the same shape {@link #release} already uses
+     * for {@code ReleaseReservationUseCase}.
+     *
+     * @throws InvalidReservationStateException if the reservation is not currently HELD —
+     *         translated from inventory's own {@code InvalidReservationStateException}
+     */
+    void commit(ReservationId reservationId);
+
     /** A batch reservation request for one checkout session. */
     record ReservationRequest(CheckoutSessionId checkoutSessionId, List<ReservationLine> lines, Instant expiresAt) {
 

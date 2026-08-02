@@ -61,11 +61,22 @@ final class CheckoutReservationCoordinator {
                 .toList();
         ReservationOutcome outcome = reservationPort.reserve(session.getId(), reservationLines, deadline);
 
+        // Captured BEFORE the repository round-trip deliberately: JpaCheckoutSessionRepository's
+        // toDomain() always reconstructs RecalculatedTotal with an EMPTY lines list (no per-line
+        // child table exists for checkout_sessions — see that class's javadoc), so `saved` below
+        // would yield an empty list here. `session`'s in-memory RecalculatedTotal (computed moments
+        // earlier by the price quote step, never round-tripped through persistence) is the only
+        // place the non-empty per-line breakdown still exists at this point (ADR-0004 item 1).
+        List<CheckoutAwaitingPaymentEvent.Line> eventLines = session.getRecalculatedTotal().lines().stream()
+                .map(l -> new CheckoutAwaitingPaymentEvent.Line(l.productId(), l.quantity(), l.unitPrice(), l.lineTotal()))
+                .toList();
+
         session.moveToAwaitingPayment(outcome.reservationId(), deadline);
         CheckoutSession saved = checkoutSessionRepository.save(session);
 
         eventPublisher.publishEvent(new CheckoutAwaitingPaymentEvent(
-                saved.getId(), saved.getCustomerId(), saved.getCartId(), saved.getReservationId(),
+                saved.getId(), saved.getCustomerId(), saved.getCartId(), saved.getReservationId(), eventLines,
+                session.getRecalculatedTotal().discountTotal(), session.getRecalculatedTotal().shippingFee(),
                 saved.getRecalculatedTotal().grandTotal(), saved.getPaymentDeadline(), now));
 
         return saved;

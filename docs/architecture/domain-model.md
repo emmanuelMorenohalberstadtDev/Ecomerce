@@ -88,7 +88,7 @@ Also owns the **admin action audit log** (rule 11: who/what/when, append-only).
 | checkout | `CheckoutSession` | — | `SessionStatus`, `PaymentWindow (deadline)`, `RecalculatedTotal`, `AppliedCoupon` | `CartId`, `CustomerId`, `ReservationId`, `OrderId` |
 | inventory | `StockItem` | — | `StockLevel`, `AdjustmentReason` | `ProductId` |
 | inventory | `StockReservation` | `ReservedLine` | `ReservationStatus (HELD, COMMITTED, RELEASED)`, `Expiry` | `ProductId`, `OrderId`, `CheckoutSessionId` |
-| order | `Order` | `OrderLine`, `OrderStatusTransition` | `OrderStatus`, `OrderTotals (items, discount, shipping, grand — Money)`, `LineSnapshot (name, unit price, qty)`, `Actor (customer/admin/system)` | `CustomerId`, `ProductId` (for display linkage only), `CouponCode` (max one, rule 9) |
+| order | `Order` | `OrderLine`, `OrderStatusTransition` | `OrderStatus`, `OrderTotals (items, discount, shipping, grand — Money)`, `LineSnapshot (name, unit price, qty)`, `Actor (customer/admin/system)` | `CustomerId`, `ProductId` (for display linkage only), `CouponCode` (max one, rule 9), `ReservationId` (commit/release only, never displayed — ADR-0004) |
 | payment | `Payment` | `PaymentAttempt`, `Refund` | `PaymentStatus`, `DeclineReason`, `GatewayReference` | `OrderId`, `CustomerId` |
 | auth/user | `UserAccount` | `Address` | `Email`, `PasswordHash`, `Role` | — |
 | auth/user | `AdminAuditEntry` (append-only) | — | `AuditAction (who, what, when)` | acting `UserId`, target resource id |
@@ -139,6 +139,7 @@ classDiagram
         OrderStatus status
         OrderTotals totals
         CouponCode? coupon
+        ReservationId? reservation
         markPaid(Actor)
         confirm(Actor)
         ship(Actor)
@@ -217,6 +218,7 @@ classDiagram
     CheckoutSession ..> StockReservation : ReservationId
     CheckoutSession ..> Order : OrderId
     CheckoutSession ..> Coupon : CouponCode
+    Order ..> StockReservation : ReservationId
     Payment ..> Order : OrderId
     Order ..> UserAccount : CustomerId
     Cart ..> UserAccount : CustomerId?
@@ -241,8 +243,8 @@ consumer depends on the producer's event type (edges match the module diagram ex
 | `ProductPriceChangedEvent` | catalog | — in v1 (checkout recalculates anyway, rule 2) | audit trail |
 | `StockReservedEvent` / `StockReleasedEvent` | inventory | — (audit trail) | rules 5, 6 traceability |
 | `OrderPlacedEvent` | order | — v1 audit; future: notifications | rule 12 |
-| `OrderPaidEvent` | order | — (audit; reservation commit is a synchronous checkout→inventory port call) | rule 12 |
-| `OrderCancelledEvent` | order | inventory (restock), payment (refund) | rule 7 |
+| `OrderPaidEvent` | order | — (audit; reservation commit is a synchronous order→inventory port call, ADR-0004) | rule 12 |
+| `OrderCancelledEvent` | order | — (audit; restock is a synchronous order→inventory port call, ADR-0004); future: payment (refund) | rule 7 |
 | `OrderFailedEvent` | order | — (audit; release already done synchronously by checkout) | rules 5, 8 |
 | `OrderShippedEvent` / `OrderDeliveredEvent` | order | — (audit; future notifications) | rule 12 |
 | `CouponRedeemedEvent` / `CouponRedemptionReversedEvent` | promotions | — (audit; reversal on cancel/fail of the redeeming order is invoked via port by order-cancel flow) | rule 9 |
