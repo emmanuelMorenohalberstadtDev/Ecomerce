@@ -78,6 +78,7 @@ class CommitReservationUseCaseTest {
     void shouldTransitionHeldToCommitted_TC3() {
         when(stockReservationRepository.findById(reservationId)).thenReturn(
                 Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(3)))));
+        when(stockReservationRepository.updateStatus(reservationId, ReservationStatus.COMMITTED)).thenReturn(true);
 
         StockReservation result = useCase.execute(reservationId);
 
@@ -89,6 +90,7 @@ class CommitReservationUseCaseTest {
     void shouldWriteCommitMovementRow_withZeroQuantityDelta_TC3() {
         when(stockReservationRepository.findById(reservationId)).thenReturn(
                 Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(3)))));
+        when(stockReservationRepository.updateStatus(any(), any())).thenReturn(true);
 
         useCase.execute(reservationId);
 
@@ -109,6 +111,7 @@ class CommitReservationUseCaseTest {
                 ReservationStatus.HELD,
                 new ReservedLine(productId, Quantity.of(3)),
                 new ReservedLine(productB, Quantity.of(1)))));
+        when(stockReservationRepository.updateStatus(any(), any())).thenReturn(true);
 
         useCase.execute(reservationId);
 
@@ -139,6 +142,23 @@ class CommitReservationUseCaseTest {
                 .isInstanceOf(InvalidReservationStateException.class);
 
         verify(stockReservationRepository, never()).updateStatus(any(), any());
+        verify(stockMovementRepository, never()).record(any());
+    }
+
+    // ── lost race against a concurrent commit/release (atomic DB-level guard) ────
+
+    @Test
+    void shouldThrowInvalidReservationStateException_whenUpdateStatusLosesConcurrentRace() {
+        when(stockReservationRepository.findById(reservationId)).thenReturn(
+                Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(3)))));
+        // In-memory read still sees HELD, but a concurrent transaction already flipped the DB row
+        // (e.g. an admin manual commit racing the checkout-expiry sweep's release) — the atomic
+        // WHERE status = 'HELD' guard reports 0 rows affected.
+        when(stockReservationRepository.updateStatus(reservationId, ReservationStatus.COMMITTED)).thenReturn(false);
+
+        assertThatThrownBy(() -> useCase.execute(reservationId))
+                .isInstanceOf(InvalidReservationStateException.class);
+
         verify(stockMovementRepository, never()).record(any());
     }
 }

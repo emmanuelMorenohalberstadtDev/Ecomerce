@@ -1,5 +1,6 @@
 package com.ecommerce.inventory.application.usecase;
 
+import com.ecommerce.inventory.domain.exception.InvalidReservationStateException;
 import com.ecommerce.inventory.domain.exception.ReservationNotFoundException;
 import com.ecommerce.inventory.domain.model.MovementType;
 import com.ecommerce.inventory.domain.model.ReservedLine;
@@ -52,8 +53,15 @@ public class CommitReservationUseCase {
                 .orElseThrow(() -> new ReservationNotFoundException(
                         "Reservation not found: " + reservationId));
 
-        reservation.commit(); // throws InvalidReservationStateException if not HELD
-        stockReservationRepository.updateStatus(reservation.getId(), reservation.getStatus());
+        reservation.commit(); // throws InvalidReservationStateException if not HELD (in-memory check)
+        // Atomic, DB-level backstop against a concurrent commit/release race on the same
+        // reservation (e.g. an admin manual commit racing the checkout-expiry sweep's release) —
+        // the in-memory check above only guards against the snapshot read at findById() time.
+        boolean updated = stockReservationRepository.updateStatus(reservation.getId(), reservation.getStatus());
+        if (!updated) {
+            throw new InvalidReservationStateException(
+                    "Reservation " + reservation.getId() + " was concurrently modified and is no longer HELD");
+        }
 
         Instant now = clock.instant();
         for (ReservedLine line : reservation.getLines()) {

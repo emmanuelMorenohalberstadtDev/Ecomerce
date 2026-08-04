@@ -87,6 +87,7 @@ class ReleaseReservationUseCaseTest {
     void shouldTransitionHeldToReleased_TC4() {
         when(stockReservationRepository.findById(reservationId)).thenReturn(
                 Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(2)))));
+        when(stockReservationRepository.updateStatus(reservationId, ReservationStatus.RELEASED)).thenReturn(true);
 
         StockReservation result = useCase.execute(reservationId);
 
@@ -101,6 +102,7 @@ class ReleaseReservationUseCaseTest {
                 ReservationStatus.HELD,
                 new ReservedLine(productId, Quantity.of(2)),
                 new ReservedLine(productB, Quantity.of(5)))));
+        when(stockReservationRepository.updateStatus(any(), any())).thenReturn(true);
 
         useCase.execute(reservationId);
 
@@ -112,6 +114,7 @@ class ReleaseReservationUseCaseTest {
     void shouldWriteReleaseMovementRow_withPositiveQuantityDelta_TC4() {
         when(stockReservationRepository.findById(reservationId)).thenReturn(
                 Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(2)))));
+        when(stockReservationRepository.updateStatus(any(), any())).thenReturn(true);
 
         useCase.execute(reservationId);
 
@@ -128,6 +131,7 @@ class ReleaseReservationUseCaseTest {
     void shouldPublishStockReleasedEvent_afterRestockAndLogging_TC4() {
         when(stockReservationRepository.findById(reservationId)).thenReturn(
                 Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(2)))));
+        when(stockReservationRepository.updateStatus(any(), any())).thenReturn(true);
 
         StockReservation result = useCase.execute(reservationId);
 
@@ -163,6 +167,25 @@ class ReleaseReservationUseCaseTest {
                 .isInstanceOf(InvalidReservationStateException.class);
 
         verify(stockReservationRepository, never()).updateStatus(any(), any());
+        verify(stockItemRepository, never()).incrementAvailable(any(), anyInt());
+        verify(stockMovementRepository, never()).record(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    // ── lost race against a concurrent commit/release (atomic DB-level guard) ────
+
+    @Test
+    void shouldThrowInvalidReservationStateException_whenUpdateStatusLosesConcurrentRace() {
+        when(stockReservationRepository.findById(reservationId)).thenReturn(
+                Optional.of(reservationWithStatus(ReservationStatus.HELD, new ReservedLine(productId, Quantity.of(2)))));
+        // In-memory read still sees HELD, but a concurrent transaction already flipped the DB row
+        // (e.g. the checkout-expiry sweep racing an admin manual commit) — the atomic
+        // WHERE status = 'HELD' guard reports 0 rows affected.
+        when(stockReservationRepository.updateStatus(reservationId, ReservationStatus.RELEASED)).thenReturn(false);
+
+        assertThatThrownBy(() -> useCase.execute(reservationId))
+                .isInstanceOf(InvalidReservationStateException.class);
+
         verify(stockItemRepository, never()).incrementAvailable(any(), anyInt());
         verify(stockMovementRepository, never()).record(any());
         verify(eventPublisher, never()).publishEvent(any());

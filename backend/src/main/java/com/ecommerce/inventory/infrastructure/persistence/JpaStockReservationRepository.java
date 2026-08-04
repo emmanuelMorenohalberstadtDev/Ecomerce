@@ -57,8 +57,8 @@ public class JpaStockReservationRepository implements StockReservationRepository
     }
 
     @Override
-    public void updateStatus(ReservationId id, ReservationStatus newStatus) {
-        springDataStockReservationDao.updateStatus(id.value(), newStatus.name());
+    public boolean updateStatus(ReservationId id, ReservationStatus newStatus) {
+        return springDataStockReservationDao.updateStatus(id.value(), newStatus.name()) > 0;
     }
 
     @Override

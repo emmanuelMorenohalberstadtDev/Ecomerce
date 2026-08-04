@@ -34,12 +34,17 @@ public interface StockReservationRepository {
     Optional<StockReservation> findById(ReservationId id);
 
     /**
-     * Updates only the {@code status} column of the reservation identified by {@code id} — never
-     * touches {@code stock_reservation_lines}. Used by commit/release after the in-memory
+     * Atomically updates the {@code status} column of the reservation identified by {@code id} —
+     * conditional on it still being {@code HELD} at the DB level, never touches
+     * {@code stock_reservation_lines}. Used by commit/release after the in-memory
      * {@link StockReservation#commit()}/{@link StockReservation#release()} transition has already
-     * validated the state change.
+     * validated the state change against a (possibly stale) in-memory read.
+     *
+     * @return {@code true} if the row was actually updated; {@code false} if a concurrent
+     *         commit/release already won the race and the reservation was no longer {@code HELD}
+     *         at the DB level — the caller must treat this as a lost race, not a silent no-op.
      */
-    void updateStatus(ReservationId id, ReservationStatus newStatus);
+    boolean updateStatus(ReservationId id, ReservationStatus newStatus);
 
     /**
      * Finds every {@code HELD} reservation whose {@code expires_at} is before {@code now} —

@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,7 +20,12 @@ import java.util.UUID;
  *
  * <p>{@link #updateStatus} is the only mutation path after initial creation — see
  * {@link StockReservationJpaEntity}'s class javadoc for why it deliberately never loads/saves the
- * lines collection. {@link #findHeldExpiredAsOf} uses {@code SELECT DISTINCT} because it returns
+ * lines collection. Its {@code WHERE ... AND r.status = 'HELD'} guard is the atomic backstop
+ * against a concurrent commit/release race on the same reservation (e.g. an admin manual commit
+ * racing the checkout-expiry sweep's release) — {@code HELD} is hardcoded rather than parameterized
+ * because it is the only legal "from" state for either transition (domain-model.md §1 rule 6/7);
+ * mirrors {@code SpringDataStockItemDao#decrementIfSufficientStock}'s atomic conditional update.
+ * {@link #findHeldExpiredAsOf} uses {@code SELECT DISTINCT} because it returns
  * a {@code List} across potentially many reservations, each with a fetched line collection —
  * without {@code DISTINCT}, a reservation with N lines would appear N times in the result.
  * {@link #findByIdFetchLines} returns a single {@code Optional} result, matching
@@ -32,8 +38,9 @@ interface SpringDataStockReservationDao extends JpaRepository<StockReservationJp
     @Query("SELECT r FROM StockReservationJpaEntity r LEFT JOIN FETCH r.lines WHERE r.id = :id")
     Optional<StockReservationJpaEntity> findByIdFetchLines(@Param("id") UUID id);
 
+    @Transactional
     @Modifying(clearAutomatically = true)
-    @Query("UPDATE StockReservationJpaEntity r SET r.status = :status WHERE r.id = :id")
+    @Query("UPDATE StockReservationJpaEntity r SET r.status = :status WHERE r.id = :id AND r.status = 'HELD'")
     int updateStatus(@Param("id") UUID id, @Param("status") String status);
 
     @Query("SELECT DISTINCT r FROM StockReservationJpaEntity r LEFT JOIN FETCH r.lines "
