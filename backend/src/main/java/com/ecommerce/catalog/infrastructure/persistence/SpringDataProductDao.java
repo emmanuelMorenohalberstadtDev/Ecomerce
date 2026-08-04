@@ -34,7 +34,7 @@ interface SpringDataProductDao extends JpaRepository<ProductJpaEntity, UUID> {
      */
     @Query("SELECT p FROM ProductJpaEntity p WHERE p.status = 'ACTIVE' "
             + "AND (:categoryId IS NULL OR p.categoryId = :categoryId) "
-            + "AND (:namePrefix IS NULL OR lower(p.name) LIKE CONCAT(:namePrefix, '%'))")
+            + "AND (:namePrefix IS NULL OR lower(p.name) LIKE CONCAT(cast(:namePrefix as string), '%'))")
     Page<ProductJpaEntity> searchActive(@Param("categoryId") UUID categoryId,
                                         @Param("namePrefix") String namePrefix,
                                         Pageable pageable);

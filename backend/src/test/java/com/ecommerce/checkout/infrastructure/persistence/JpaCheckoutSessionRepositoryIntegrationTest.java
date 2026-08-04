@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -68,7 +67,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * query, and {@code @Version} optimistic-lock conflict detection.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 @Transactional
 class JpaCheckoutSessionRepositoryIntegrationTest extends PostgresIntegrationTestBase {
@@ -279,7 +277,8 @@ class JpaCheckoutSessionRepositoryIntegrationTest extends PostgresIntegrationTes
         expiredCandidate.moveToAwaitingPayment(newSavedReservation(productId, pastDeadline), pastDeadline);
         checkoutSessionRepository.create(expiredCandidate);
 
-        CheckoutSession notYetDue = pendingSession(customerId, newSavedCart(customerId), "key-" + UUID.randomUUID());
+        CustomerId secondCustomerId = newSavedCustomer();
+        CheckoutSession notYetDue = pendingSession(secondCustomerId, newSavedCart(secondCustomerId), "key-" + UUID.randomUUID());
         notYetDue.moveToAwaitingPayment(newSavedReservation(productId, futureDeadline), futureDeadline);
         checkoutSessionRepository.create(notYetDue);
 

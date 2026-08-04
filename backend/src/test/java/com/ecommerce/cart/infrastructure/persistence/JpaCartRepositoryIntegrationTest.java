@@ -25,7 +25,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,7 +49,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * optimistic-lock conflict detection.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 @Transactional
 class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
@@ -79,12 +77,20 @@ class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
         return productRepository.save(product).getId();
     }
 
+    /** Inserts a {@code users} row so {@code fk_carts_customer} is satisfiable against real Postgres. */
+    private CustomerId newSavedCustomer() {
+        CustomerId customerId = CustomerId.generate();
+        jdbcTemplate.update("INSERT INTO users (id, email, password_hash) VALUES (?, ?, 'hash')",
+                customerId.value(), "customer-" + customerId.value() + "@example.com");
+        return customerId;
+    }
+
     // ── save + findById round trip, snapshot immunity ─────────────────────
 
     @Test
     void shouldPersistAndReloadCart_preservingSnapshotFieldsVerbatim() {
         ProductId productId = newSavedProduct("Catalog Name At Save Time", "19.99");
-        Cart cart = Cart.createCustomerCart(CustomerId.generate());
+        Cart cart = Cart.createCustomerCart(newSavedCustomer());
         cart.addItem(productId, new ProductSnapshot("Snapshot Name", new Money(new BigDecimal("19.99"), "USD")),
                 Quantity.of(3), NOW);
 
@@ -103,7 +109,7 @@ class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
     @Test
     void shouldStaySnapshotImmune_whenUnderlyingCatalogProductLaterChanges() {
         ProductId productId = newSavedProduct("Original Catalog Name", "19.99");
-        Cart cart = Cart.createCustomerCart(CustomerId.generate());
+        Cart cart = Cart.createCustomerCart(newSavedCustomer());
         cart.addItem(productId, new ProductSnapshot("Snapshot Name", new Money(new BigDecimal("19.99"), "USD")),
                 Quantity.of(1), NOW);
         Cart saved = cartRepository.save(cart);
@@ -132,7 +138,7 @@ class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
 
     @Test
     void findActiveByCustomerId_returnsCart_whenActiveCartExists() {
-        CustomerId customerId = CustomerId.generate();
+        CustomerId customerId = newSavedCustomer();
         Cart saved = cartRepository.save(Cart.createCustomerCart(customerId));
 
         Optional<Cart> found = cartRepository.findActiveByCustomerId(customerId);
@@ -171,7 +177,7 @@ class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
     void findActiveByGuestTokenHash_excludesMergedCart() {
         String hash = "hash-" + UUID.randomUUID();
         Cart guestCart = Cart.createGuestCart(hash);
-        Cart customerCart = Cart.createCustomerCart(CustomerId.generate());
+        Cart customerCart = Cart.createCustomerCart(newSavedCustomer());
         customerCart.mergeFrom(guestCart); // guestCart -> MERGED, its hash cleared
 
         cartRepository.save(customerCart);
@@ -229,7 +235,7 @@ class JpaCartRepositoryIntegrationTest extends PostgresIntegrationTestBase {
     void save_throwsCartConcurrentModificationException_onLostOptimisticLockRace() {
         ProductId productA = newSavedProduct("Product A", "1.00");
         ProductId productB = newSavedProduct("Product B", "2.00");
-        Cart cart = Cart.createCustomerCart(CustomerId.generate());
+        Cart cart = Cart.createCustomerCart(newSavedCustomer());
         Cart saved = cartRepository.save(cart);
         entityManager.flush();
         entityManager.clear();

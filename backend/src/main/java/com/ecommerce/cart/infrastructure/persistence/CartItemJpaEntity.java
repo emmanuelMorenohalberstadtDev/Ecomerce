@@ -9,6 +9,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -49,7 +51,8 @@ public class CartItemJpaEntity {
     @Column(name = "unit_price", nullable = false)
     private BigDecimal unitPrice;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "char(3)")
+    @JdbcTypeCode(SqlTypes.CHAR)
     private String currency;
 
     @Column(nullable = false)

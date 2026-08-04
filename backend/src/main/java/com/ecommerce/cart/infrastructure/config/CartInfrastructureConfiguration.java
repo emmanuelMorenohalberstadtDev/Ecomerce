@@ -27,7 +27,7 @@ public class CartInfrastructureConfiguration {
     }
 
     @Bean
-    public ProductCatalogPort productCatalogPort(ProductLookupPort productLookupPort) {
+    public ProductCatalogPort cartProductCatalogPort(ProductLookupPort productLookupPort) {
         return new ProductCatalogAdapter(productLookupPort);
     }
 

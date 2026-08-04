@@ -11,7 +11,6 @@ import com.ecommerce.shared.id.CustomerId;
 import com.ecommerce.shared.id.ProductId;
 import com.ecommerce.shared.money.Money;
 import com.ecommerce.shared.quantity.Quantity;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -29,11 +28,19 @@ import java.util.Optional;
  * to {@link CartJpaEntity#isNew()} always returning {@code false} — always resolves to
  * {@code entityManager.merge(...)}, correctly performing an INSERT or UPDATE either way.
  *
- * <p>Translates a lost optimistic-lock race ({@link ObjectOptimisticLockingFailureException}, on
- * the {@code carts.version} column) into {@link CartConcurrentModificationException} (409) —
- * this is the adapter's job per the hexagonal skill ("adapters translate errors: vendor
- * exceptions become domain results/exceptions at the boundary"), the same pattern
- * {@code JpaProductRepository} already uses for {@code DataIntegrityViolationException}.
+ * <p><strong>Optimistic lock is enforced via an explicit conditional bump, not {@code @Version}
+ * dirty-checking:</strong> {@code items} is a bidirectional {@code @OneToMany(mappedBy = "cart")}
+ * — the FK lives on {@code cart_items}, so Hibernate does not increment {@code carts.version} on
+ * collection-only changes (the association's non-owning side is invisible to the parent's dirty
+ * check), meaning two editors racing to add different items would otherwise both succeed, the
+ * second silently discarding the first's line via merge's collection reconciliation. {@link #save}
+ * therefore always issues {@code SpringDataCartDao.bumpVersionIfMatches} first — an atomic
+ * {@code UPDATE ... WHERE version = :expected} guard, mirroring
+ * {@code inventory.infrastructure.persistence.SpringDataStockItemDao#decrementIfSufficientStock} —
+ * before merging the rest of the entity graph. Zero rows affected means a concurrent editor won;
+ * translated to {@link CartConcurrentModificationException} (409), the adapter's job per the
+ * hexagonal skill ("adapters translate errors: vendor exceptions become domain results/exceptions
+ * at the boundary").
  */
 public class JpaCartRepository implements CartRepository {
 
@@ -47,14 +54,18 @@ public class JpaCartRepository implements CartRepository {
 
     @Override
     public Cart save(Cart cart) {
-        CartJpaEntity entity = toEntity(cart);
-        try {
-            CartJpaEntity saved = springDataCartDao.save(entity);
-            return toDomain(saved);
-        } catch (ObjectOptimisticLockingFailureException e) {
-            throw new CartConcurrentModificationException(
-                    "Cart " + cart.getId() + " was modified concurrently; reload and retry", e);
+        long nextVersion = cart.getVersion();
+        if (springDataCartDao.existsById(cart.getId().value())) {
+            int updated = springDataCartDao.bumpVersionIfMatches(cart.getId().value(), cart.getVersion());
+            if (updated == 0) {
+                throw new CartConcurrentModificationException(
+                        "Cart " + cart.getId() + " was modified concurrently; reload and retry", null);
+            }
+            nextVersion = cart.getVersion() + 1;
         }
+        CartJpaEntity entity = toEntity(cart, nextVersion);
+        CartJpaEntity saved = springDataCartDao.saveAndFlush(entity);
+        return toDomain(saved);
     }
 
     @Override
@@ -76,14 +87,14 @@ public class JpaCartRepository implements CartRepository {
     // Private mapping helpers
     // -------------------------------------------------------------------------
 
-    private CartJpaEntity toEntity(Cart cart) {
+    private CartJpaEntity toEntity(Cart cart, long version) {
         Instant now = clock.instant();
         CartJpaEntity entity = new CartJpaEntity(
                 cart.getId().value(),
                 cart.getCustomerId() == null ? null : cart.getCustomerId().value(),
                 cart.getGuestTokenHash(),
                 cart.getStatus().name(),
-                cart.getVersion(),
+                version,
                 now // createdAt: ignored on UPDATE because updatable=false
         );
         List<CartItemJpaEntity> items = cart.getLines().stream()

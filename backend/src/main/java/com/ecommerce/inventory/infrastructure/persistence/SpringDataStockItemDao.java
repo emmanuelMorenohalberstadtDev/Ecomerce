@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -25,11 +26,13 @@ import java.util.UUID;
 @Repository
 interface SpringDataStockItemDao extends JpaRepository<StockItemJpaEntity, UUID> {
 
+    @Transactional
     @Modifying(clearAutomatically = true)
     @Query("UPDATE StockItemJpaEntity s SET s.quantityAvailable = s.quantityAvailable - :quantity "
             + "WHERE s.productId = :productId AND s.quantityAvailable >= :quantity")
     int decrementIfSufficientStock(@Param("productId") UUID productId, @Param("quantity") int quantity);
 
+    @Transactional
     @Modifying(clearAutomatically = true)
     @Query("UPDATE StockItemJpaEntity s SET s.quantityAvailable = s.quantityAvailable + :quantity "
             + "WHERE s.productId = :productId")

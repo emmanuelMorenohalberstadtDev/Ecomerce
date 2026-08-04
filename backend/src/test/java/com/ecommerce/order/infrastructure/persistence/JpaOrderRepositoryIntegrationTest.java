@@ -39,7 +39,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -73,7 +72,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * idempotency backstop, and {@code @Version} optimistic-lock conflict detection.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 @Transactional
 class JpaOrderRepositoryIntegrationTest extends PostgresIntegrationTestBase {

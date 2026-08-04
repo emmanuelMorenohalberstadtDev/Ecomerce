@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -66,7 +68,8 @@ public class ProductJpaEntity {
     @Column(name = "base_price", nullable = false)
     private BigDecimal basePrice;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "char(3)")
+    @JdbcTypeCode(SqlTypes.CHAR)
     private String currency;
 
     @Column(nullable = false)

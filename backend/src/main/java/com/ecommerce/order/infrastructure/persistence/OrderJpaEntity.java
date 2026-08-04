@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
@@ -75,7 +77,8 @@ public class OrderJpaEntity implements Persistable<UUID> {
     @Column(name = "grand_total", nullable = false, precision = 19, scale = 4, updatable = false)
     private BigDecimal grandTotal;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, columnDefinition = "char(3)")
+    @JdbcTypeCode(SqlTypes.CHAR)
     private String currency;
 
     @Column(name = "coupon_code", updatable = false)

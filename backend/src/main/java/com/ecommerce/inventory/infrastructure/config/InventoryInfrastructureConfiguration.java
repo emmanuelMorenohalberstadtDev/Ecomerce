@@ -18,7 +18,7 @@ import org.springframework.context.annotation.Configuration;
 public class InventoryInfrastructureConfiguration {
 
     @Bean
-    public CurrentActorPort currentActorPort() {
+    public CurrentActorPort inventoryCurrentActorPort() {
         return new SecurityContextCurrentActorAdapter();
     }
 

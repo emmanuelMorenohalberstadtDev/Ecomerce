@@ -1,9 +1,11 @@
 package com.ecommerce.cart.infrastructure.persistence;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -32,4 +34,18 @@ interface SpringDataCartDao extends JpaRepository<CartJpaEntity, UUID> {
     @Query("SELECT c FROM CartJpaEntity c LEFT JOIN FETCH c.items "
             + "WHERE c.guestTokenHash = :guestTokenHash AND c.status = 'ACTIVE'")
     Optional<CartJpaEntity> findActiveByGuestTokenHashFetchItems(@Param("guestTokenHash") String guestTokenHash);
+
+    /**
+     * Atomic conditional version bump — the optimistic-lock check for updates. {@code items} is a
+     * bidirectional {@code @OneToMany(mappedBy = "cart")}, so Hibernate does not increment
+     * {@code carts.version} on collection-only changes (the FK lives on the child side, invisible
+     * to the parent's dirty check) — this explicit {@code WHERE version = :expectedVersion} guard
+     * is the reliable substitute, mirroring
+     * {@code inventory.infrastructure.persistence.SpringDataStockItemDao#decrementIfSufficientStock}'s
+     * atomic conditional UPDATE pattern. Zero rows affected means a concurrent editor already won.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE CartJpaEntity c SET c.version = c.version + 1 WHERE c.id = :id AND c.version = :expectedVersion")
+    int bumpVersionIfMatches(@Param("id") UUID id, @Param("expectedVersion") long expectedVersion);
 }

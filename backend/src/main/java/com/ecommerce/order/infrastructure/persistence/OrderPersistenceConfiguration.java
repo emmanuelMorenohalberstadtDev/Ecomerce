@@ -25,7 +25,7 @@ public class OrderPersistenceConfiguration {
     }
 
     @Bean
-    public AuditLogPort auditLogPort(SpringDataOrderAuditLogDao springDataOrderAuditLogDao, Clock clock) {
+    public AuditLogPort orderAuditLogPort(SpringDataOrderAuditLogDao springDataOrderAuditLogDao, Clock clock) {
         return new OrderAuditLogJpaAdapter(springDataOrderAuditLogDao, clock);
     }
 }

@@ -7,6 +7,9 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcType;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -40,7 +43,8 @@ public class UserAccountJpaEntity {
     @Column(updatable = false, nullable = false)
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, unique = true, columnDefinition = "citext")
+    @JdbcType(CitextJdbcType.class)
     private String email;
 
     /**
@@ -59,6 +63,7 @@ public class UserAccountJpaEntity {
     private boolean accountLocked;
 
     @Column(name = "failed_login_attempts", nullable = false)
+    @JdbcTypeCode(SqlTypes.SMALLINT)
     private int failedLoginAttempts;
 
     @Column(name = "created_at", updatable = false)

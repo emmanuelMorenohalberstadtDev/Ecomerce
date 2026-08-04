@@ -43,7 +43,7 @@ public class JpaProductRepository implements ProductRepository {
     public Product save(Product product) {
         ProductJpaEntity entity = toEntity(product);
         try {
-            ProductJpaEntity saved = springDataProductDao.save(entity);
+            ProductJpaEntity saved = springDataProductDao.saveAndFlush(entity);
             return toDomain(saved);
         } catch (DataIntegrityViolationException e) {
             // Backstop for the race between CreateProductUseCase's existsBySku pre-check and

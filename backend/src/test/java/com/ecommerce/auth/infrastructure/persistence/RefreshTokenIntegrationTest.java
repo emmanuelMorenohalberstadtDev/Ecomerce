@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -30,7 +29,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * provides the real PostgreSQL instance with Flyway migrations applied.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 @Transactional
 class RefreshTokenIntegrationTest extends PostgresIntegrationTestBase {
@@ -121,11 +119,11 @@ class RefreshTokenIntegrationTest extends PostgresIntegrationTestBase {
 
         refreshTokenStore.revokeFamilyById(familyId, "LOGOUT");
 
-        // Verify the family entity is now revoked via the family DAO
-        // (we test the observable effect through the token lookup — a revoked family
-        // means its tokens should still be findable by hash, but the family row is marked)
+        // findByTokenHash's query excludes tokens whose family is revoked (f.revoked = false) —
+        // deliberate anti-enumeration design (RefreshTokenUseCase maps "not found" and "revoked"
+        // to the identical TokenExpiredException so a caller cannot distinguish the two).
         Optional<RefreshTokenRecord> token = refreshTokenStore.findByTokenHash("hash-revoke-test");
-        assertThat(token).isPresent(); // token row still exists, family is just revoked
+        assertThat(token).isEmpty();
     }
 
     // ── revokeAllFamiliesByUserId ──────────────────────────────────────────────

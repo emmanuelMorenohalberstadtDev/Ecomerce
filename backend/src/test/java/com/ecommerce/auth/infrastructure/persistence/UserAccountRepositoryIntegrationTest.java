@@ -11,8 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
-
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +26,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * citext case-insensitive email lookup, UNIQUE constraint, roundtrip mapping.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 @Transactional
 class UserAccountRepositoryIntegrationTest extends PostgresIntegrationTestBase {

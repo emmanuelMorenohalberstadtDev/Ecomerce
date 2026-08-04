@@ -31,7 +31,7 @@ import java.math.BigDecimal;
 public class PricingInfrastructureConfiguration {
 
     @Bean
-    public ProductCatalogPort productCatalogPort(ProductLookupPort productLookupPort) {
+    public ProductCatalogPort pricingProductCatalogPort(ProductLookupPort productLookupPort) {
         return new CatalogPriceAdapter(productLookupPort);
     }
 

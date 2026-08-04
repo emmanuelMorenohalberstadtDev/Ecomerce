@@ -36,7 +36,7 @@ public class InventoryPersistenceConfiguration {
     }
 
     @Bean
-    public AuditLogPort auditLogPort(SpringDataInventoryAuditLogDao springDataInventoryAuditLogDao, Clock clock) {
+    public AuditLogPort inventoryAuditLogPort(SpringDataInventoryAuditLogDao springDataInventoryAuditLogDao, Clock clock) {
         return new InventoryAuditLogJpaAdapter(springDataInventoryAuditLogDao, clock);
     }
 }

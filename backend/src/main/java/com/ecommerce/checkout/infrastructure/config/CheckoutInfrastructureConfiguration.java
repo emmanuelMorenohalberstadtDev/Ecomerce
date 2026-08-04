@@ -57,7 +57,7 @@ public class CheckoutInfrastructureConfiguration {
     }
 
     @Bean
-    public ReservationPort reservationPort(StockReservationPort stockReservationPort) {
+    public ReservationPort checkoutReservationPort(StockReservationPort stockReservationPort) {
         return new ReservationAdapter(stockReservationPort);
     }
 

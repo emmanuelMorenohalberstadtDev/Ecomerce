@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
@@ -77,7 +79,8 @@ public class CheckoutSessionJpaEntity implements Persistable<UUID> {
     @Column(name = "expected_total", nullable = false, precision = 19, scale = 4, updatable = false)
     private BigDecimal expectedTotal;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, columnDefinition = "char(3)")
+    @JdbcTypeCode(SqlTypes.CHAR)
     private String currency;
 
     @Column(name = "payment_deadline")

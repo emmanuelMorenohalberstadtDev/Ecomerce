@@ -358,14 +358,17 @@ class CartTest {
         }
 
         @Test
-        void transitionsGuestCartToMergedAndClearsItsTokenHash() {
+        void transitionsGuestCartToMerged_keepingItsTokenHashForCkCartsIdentity() {
             Cart customerCart = Cart.createCustomerCart(CustomerId.generate());
             Cart guestCart = Cart.createGuestCart("hash");
 
             customerCart.mergeFrom(guestCart);
 
             assertThat(guestCart.getStatus()).isEqualTo(CartStatus.MERGED);
-            assertThat(guestCart.getGuestTokenHash()).isNull();
+            // guestTokenHash is deliberately NOT cleared: ck_carts_identity (V003) requires exactly
+            // one of customerId/guestTokenHash at all times, even for a MERGED row. "Invalidated at
+            // merge" is satisfied by the status transition alone (see Cart#markMerged javadoc).
+            assertThat(guestCart.getGuestTokenHash()).isEqualTo("hash");
         }
 
         @Test

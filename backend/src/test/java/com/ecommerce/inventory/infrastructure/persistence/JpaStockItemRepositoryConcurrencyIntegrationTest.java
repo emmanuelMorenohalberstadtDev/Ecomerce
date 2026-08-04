@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -55,7 +54,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * therefore committed for real, and cleaned up manually in {@link #cleanUp()}.
  */
 @Tag("integration")
-@Testcontainers
 @SpringBootTest
 class JpaStockItemRepositoryConcurrencyIntegrationTest extends PostgresIntegrationTestBase {
 

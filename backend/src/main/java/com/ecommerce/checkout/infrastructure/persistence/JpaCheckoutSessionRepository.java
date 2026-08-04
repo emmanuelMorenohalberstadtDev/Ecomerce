@@ -111,7 +111,7 @@ public class JpaCheckoutSessionRepository implements CheckoutSessionRepository {
 
     private CheckoutSession saveInternal(CheckoutSession session) {
         CheckoutSessionJpaEntity entity = toEntity(session);
-        CheckoutSessionJpaEntity saved = springDataCheckoutSessionDao.save(entity);
+        CheckoutSessionJpaEntity saved = springDataCheckoutSessionDao.saveAndFlush(entity);
         return toDomain(saved);
     }
 

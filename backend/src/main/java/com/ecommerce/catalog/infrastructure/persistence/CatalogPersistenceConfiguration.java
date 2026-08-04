@@ -30,7 +30,7 @@ public class CatalogPersistenceConfiguration {
     }
 
     @Bean
-    public AuditLogPort auditLogPort(SpringDataAdminAuditLogDao springDataAdminAuditLogDao, Clock clock) {
+    public AuditLogPort catalogAuditLogPort(SpringDataAdminAuditLogDao springDataAdminAuditLogDao, Clock clock) {
         return new AdminAuditLogJpaAdapter(springDataAdminAuditLogDao, clock);
     }
 }

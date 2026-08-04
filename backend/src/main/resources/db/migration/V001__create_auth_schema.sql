@@ -372,9 +372,16 @@ BEGIN
 END;
 $$;
 
--- Schema-level access
-GRANT CONNECT ON DATABASE ecommerce TO ecommerce_app;
-GRANT USAGE   ON SCHEMA  public     TO ecommerce_app;
+-- Schema-level access. CONNECT is granted against current_database() rather than a
+-- hardcoded name so this migration is portable across the prod/dev database (named via
+-- DB_NAME) and any differently-named database it is replayed against (Testcontainers'
+-- ecommerce_test, CI-provisioned databases, etc.).
+DO $$
+BEGIN
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO ecommerce_app', current_database());
+END;
+$$;
+GRANT USAGE ON SCHEMA public TO ecommerce_app;
 
 -- users: application performs SELECT / INSERT / UPDATE (soft-lock, update attempts).
 -- DELETE is intentionally withheld — users are deactivated, never deleted, while

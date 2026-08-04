@@ -248,10 +248,20 @@ public class Cart {
         guestCart.markMerged();
     }
 
-    /** Transitions this cart to {@link CartStatus#MERGED} and clears its guest token hash. Called only by {@link #mergeFrom} on the guest side. */
+    /**
+     * Transitions this cart to {@link CartStatus#MERGED}. Called only by {@link #mergeFrom} on the
+     * guest side.
+     *
+     * <p>Deliberately does NOT clear {@link #guestTokenHash} — {@code ck_carts_identity} (V003)
+     * requires exactly one of {@code customerId}/{@code guestTokenHash} at all times, even for a
+     * MERGED row, so nulling the hash without also assigning a customer would violate that
+     * constraint on save and make this cart unreconstitutable. "The guest token is invalidated at
+     * merge" (security-architecture §2.7) is satisfied by the status transition alone —
+     * {@code findActiveByGuestTokenHash} filters on {@code status = 'ACTIVE'}, so a MERGED cart
+     * never resolves via its (still-present) hash regardless.
+     */
     public void markMerged() {
         this.status = CartStatus.MERGED;
-        this.guestTokenHash = null;
     }
 
     /**

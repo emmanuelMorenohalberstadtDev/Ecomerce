@@ -72,7 +72,7 @@ public class JpaOrderRepository implements OrderRepository {
     public Order create(Order order) {
         OrderJpaEntity saved;
         try {
-            saved = springDataOrderDao.save(toHeaderEntity(order));
+            saved = springDataOrderDao.saveAndFlush(toHeaderEntity(order));
         } catch (DataIntegrityViolationException e) {
             throw new DuplicateOrderException(
                     "An order already exists for reservation " + order.getReservationId());
