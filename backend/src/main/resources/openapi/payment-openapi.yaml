@@ -1,0 +1,141 @@
+openapi: 3.0.3
+info:
+  title: Ecommerce API — payment context
+  version: "1.0"
+  description: >
+    Hand-authored OpenAPI contract for the payment bounded context (ADR-0005). Same
+    no-generation-tooling caveat as catalog-openapi.yaml/checkout-openapi.yaml/inventory-openapi.yaml:
+    no springdoc-openapi in this repository yet, maintained by hand until that changes.
+
+    Payment is customer-only — there is no guest path. Every endpoint below requires a
+    CUSTOMER-role bearer token, and is ownership-scoped to the caller's own order (404 if the order
+    does not exist or belongs to another customer).
+
+    Declines and timeouts are NOT modeled as errors: submitting a payment against a payable order
+    always returns 200, whatever the gateway outcome — the response body's `outcome` field
+    (APPROVED/DECLINED/TIMEOUT) tells the caller what happened. Only an order that is not currently
+    payable (already paid, failed, or cancelled) is an error (422), and only a missing/foreign
+    order is 404.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: payment
+
+paths:
+  /orders/{orderId}/payments:
+    post:
+      tags: [payment]
+      summary: Submit a payment attempt for the caller's own order
+      security: [{ bearerAuth: [] }]
+      description: >
+        Reads the order's server-computed grand total and charges exactly that amount against the
+        (simulated) payment gateway — there is no amount field on this request; a client can never
+        supply or influence the charged amount.
+
+        Idempotent replay: the same `Idempotency-Key` presented again against the same order
+        returns the original recorded outcome without invoking the gateway a second time. A
+        `DECLINED` or `TIMEOUT` outcome leaves the order untouched and payable — retry with a new
+        `Idempotency-Key` within the checkout payment window. An `APPROVED` outcome captures the
+        payment and moves the order `PLACED -> PAID` in the same atomic operation.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Client-generated key, 1-128 chars, opaque to the server (api-guidelines §5). Presenting
+            the same key again against the same order replays the original recorded outcome rather
+            than charging again.
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        "200":
+          description: >
+            The gateway outcome for this attempt (APPROVED/DECLINED/TIMEOUT) — see `outcome` in the
+            response body. Always 200 regardless of outcome; only an unpayable order is an error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such order, or it does not belong to the caller
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+        "422":
+          description: The order is not currently payable (not PLACED — already paid, failed, or cancelled)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    ValidationError:
+      description: Missing/blank Idempotency-Key, or invalid path parameter
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Forbidden:
+      description: Authenticated but wrong role (e.g. ADMIN — admins don't shop)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  schemas:
+    MoneyDto:
+      type: object
+      description: api-guidelines.md §1.7 — amount is a decimal string, never a bare number.
+      required: [amount, currency]
+      properties:
+        amount: { type: string, example: "49.99" }
+        currency: { type: string, example: "USD" }
+
+    PaymentResponse:
+      type: object
+      properties:
+        paymentId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [PENDING, CAPTURED, REFUNDED]
+          description: The Payment aggregate's current status (distinct from this attempt's outcome below).
+        outcome:
+          type: string
+          enum: [APPROVED, DECLINED, TIMEOUT]
+          description: This specific attempt's gateway result.
+        declineReason:
+          type: string
+          enum: [INSUFFICIENT_FUNDS, CARD_DECLINED, FRAUD_SUSPECTED, GATEWAY_TIMEOUT, GENERIC_DECLINE]
+          nullable: true
+          description: Present only when outcome is DECLINED.
+        gatewayReference:
+          type: string
+          nullable: true
+          description: Simulated/real PSP's opaque reference. Never card-shaped data.
+        amount: { $ref: "#/components/schemas/MoneyDto" }
+        attemptedAt: { type: string, format: date-time }
+
+    ProblemDetail:
+      type: object
+      description: RFC 9457 Problem Details (api-guidelines.md §3.1)
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }

@@ -3,8 +3,12 @@ package com.ecommerce.order.infrastructure.config;
 import com.ecommerce.catalog.application.port.ProductLookupPort;
 import com.ecommerce.inventory.application.port.StockReservationPort;
 import com.ecommerce.order.application.port.CurrentActorPort;
+import com.ecommerce.order.application.port.OrderPaymentPort;
+import com.ecommerce.order.application.usecase.GetOrderForPaymentUseCase;
+import com.ecommerce.order.application.usecase.MarkOrderPaidFromPaymentUseCase;
 import com.ecommerce.order.domain.port.out.ProductCatalogPort;
 import com.ecommerce.order.domain.port.out.ReservationPort;
+import com.ecommerce.order.infrastructure.adapter.OrderPaymentAdapter;
 import com.ecommerce.order.infrastructure.adapter.ProductCatalogAdapter;
 import com.ecommerce.order.infrastructure.adapter.ReservationAdapter;
 import com.ecommerce.order.infrastructure.security.SecurityContextCurrentActorAdapter;
@@ -12,8 +16,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Non-persistence infrastructure wiring for the order context: the two cross-context outbound
- * port adapters (ADR-0004) and {@link CurrentActorPort}. Mirrors
+ * Non-persistence infrastructure wiring for the order context: the cross-context outbound port
+ * adapters (ADR-0004, ADR-0005) and {@link CurrentActorPort}. Mirrors
  * {@code InventoryInfrastructureConfiguration}'s exact style.
  *
  * <p>Every use case in this context is a plain {@code @Service}-annotated, component-scanned bean
@@ -27,7 +31,7 @@ import org.springframework.context.annotation.Configuration;
 public class OrderInfrastructureConfiguration {
 
     @Bean
-    public CurrentActorPort currentActorPort() {
+    public CurrentActorPort orderCurrentActorPort() {
         return new SecurityContextCurrentActorAdapter();
     }
 
@@ -36,7 +40,7 @@ public class OrderInfrastructureConfiguration {
      * for order's reservation commit/release.
      */
     @Bean
-    public ReservationPort reservationPort(StockReservationPort stockReservationPort) {
+    public ReservationPort orderReservationPort(StockReservationPort stockReservationPort) {
         return new ReservationAdapter(stockReservationPort);
     }
 
@@ -45,7 +49,18 @@ public class OrderInfrastructureConfiguration {
      * for order's product-name resolution at placement time.
      */
     @Bean
-    public ProductCatalogPort productCatalogPort(ProductLookupPort productLookupPort) {
+    public ProductCatalogPort orderProductCatalogPort(ProductLookupPort productLookupPort) {
         return new ProductCatalogAdapter(productLookupPort);
+    }
+
+    /**
+     * Order's first-ever producer-side façade (ADR-0005 §Decision item 1) — the sanctioned
+     * crossing point payment uses to read a customer's order and drive its
+     * {@code PLACED -> PAID} transition on a successful capture.
+     */
+    @Bean
+    public OrderPaymentPort orderPaymentPort(GetOrderForPaymentUseCase getOrderForPaymentUseCase,
+                                             MarkOrderPaidFromPaymentUseCase markOrderPaidFromPaymentUseCase) {
+        return new OrderPaymentAdapter(getOrderForPaymentUseCase, markOrderPaidFromPaymentUseCase);
     }
 }

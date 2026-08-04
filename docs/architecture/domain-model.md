@@ -67,7 +67,10 @@ actor (rule 12). Depends on nothing but the shared kernel — driven by ports, o
 Owns payment attempts and refunds behind `PaymentGatewayPort` — **v1 adapter is simulated**
 (non-goal: real PSP). Records every attempt (approved/declined + reason) against an `OrderId`.
 Consumes `OrderCancelledEvent` to issue refunds (rule 7). No card data is stored, ever — only
-gateway references, real or simulated.
+gateway references, real or simulated. Drives the order's `PLACED → PAID` transition synchronously
+via `order.application.port.OrderPaymentPort` on a successful capture (ADR-0005); never transitions
+an order to `FAILED` or `CANCELLED` — checkout's expiry sweep remains the sole owner of
+`PLACED → FAILED` (ADR-0004).
 
 ### auth/user
 Owns identity, credentials, roles (GUEST implicit, CUSTOMER, ADMIN), registration, login, JWT
@@ -248,7 +251,7 @@ consumer depends on the producer's event type (edges match the module diagram ex
 | `OrderFailedEvent` | order | — (audit; release already done synchronously by checkout) | rules 5, 8 |
 | `OrderShippedEvent` / `OrderDeliveredEvent` | order | — (audit; future notifications) | rule 12 |
 | `CouponRedeemedEvent` / `CouponRedemptionReversedEvent` | promotions | — (audit; reversal on cancel/fail of the redeeming order is invoked via port by order-cancel flow) | rule 9 |
-| `PaymentCapturedEvent` / `PaymentDeclinedEvent` / `PaymentRefundedEvent` | payment | — (audit; checkout consumes results synchronously in v1) | rule 8 |
+| `PaymentCapturedEvent` / `PaymentDeclinedEvent` / `PaymentRefundedEvent` | payment | — (audit; order consumes a successful capture synchronously via a port call, not this event — ADR-0005) | rule 8 |
 
 Rules: events carry IDs + minimal facts, never full aggregates. "— (audit)" consumers still matter:
 they feed the append-only audit/history requirements (rules 11, 12) without coupling contexts.
